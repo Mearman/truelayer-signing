@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -35,20 +34,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// A random body string is enough for this request as `/test-signature` endpoint does not
-	// require any schema, it simply checks the signature is valid against what's received.
-	body := fmt.Sprintf("body-%d", rand.Intn(99999999))
+	// Set Body here
+	body := `{"amount_in_minor":1,"currency":"GBP","payment_method":{"type":"bank_transfer","provider_selection":{"type":"preselected","provider_id":"mock-payments-gb-redirect","scheme_id":"faster_payments_service"},"beneficiary":{"type":"merchant_account","account_holder_name":"Merchant Account name","merchant_account_id":"cc12f006-f94f-41bf-b093-34a005fa2e1e"}},"user":{"id":"57e9ae89-01fd-4779-8775-5b7de9a85a64","name":"Test","email":"test@gmail.com","phone":"+3634455433456"}}`
 
 	idempotencyKey := uuid.New().String()
+	contentType := "application/json"
 
 	// Generate tl-signature
 	tlSignature, err := tlsigning.SignWithPem(kid, []byte(privateKey)).
 		Method("POST"). // as we're sending a POST request
-		Path("/test-signature").
-		// Optional: /test-signature does not require any headers, but we may sign some anyway.
-		// All signed headers *must* be included unmodified in the request.
+		Path("/payments").
 		Header("Idempotency-Key", []byte(idempotencyKey)).
-		Header("X-Bar-Header", []byte("abc123")).
+		Header("Content-Type", []byte(contentType)).
 		Body([]byte(body)). // body of our request
 		Sign()
 
@@ -61,14 +58,14 @@ func main() {
 
 	// Request body & any signed headers *must* exactly match what was used to generate the signature.
 	client := &http.Client{}
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/test-signature", TlBaseURL), strings.NewReader(body))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/payments", TlBaseURL), strings.NewReader(body))
 	if err != nil {
 		fmt.Printf("Failed request creation: %s\n", err.Error())
 		os.Exit(1)
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 	req.Header.Add("Idempotency-Key", idempotencyKey)
-	req.Header.Add("X-Bar-Header", "abc123")
+	req.Header.Add("Content-Type", contentType)
 	req.Header.Add("Tl-Signature", tlSignature)
 	resp, err := client.Do(req)
 
